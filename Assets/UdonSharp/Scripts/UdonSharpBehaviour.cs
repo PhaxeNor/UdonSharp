@@ -1,28 +1,17 @@
-﻿using System.Linq;
+﻿using System;
+using System.Linq;
 using System.Reflection;
 using UnityEngine;
 using VRC.Udon.Common.Interfaces;
+using VRC.Udon.Serialization.OdinSerializer;
 
 namespace UdonSharp
 {
-#if false
-    public class UdonSharpBehaviourMetadata
-    {
-        public int ScriptVersion { get; } = 0;
-        public System.DateTime ScriptCompileDate { get; } = System.DateTime.Now;
-        public string CompilerVersion { get; } = "v0.0.0+0";
-        public string CompilerName { get; } = "Roslyn C# compiler"; // Just assume people are on the correct runtime version for Udon, since other runtimes won't compile anyways
-        public int CompilerMajorVersion { get; } = 0;
-        public int CompilerMinorVersion { get; } = 0;
-        public int CompilerPatchVersion { get; } = 0;
-        public int CompilerBuild { get; } = 0;
-    }
-#endif
-
     public abstract class UdonSharpBehaviour : MonoBehaviour
+#if UNITY_EDITOR
+        , ISerializationCallbackReceiver
+#endif
     {
-        //protected UdonSharpBehaviourMetadata UdonMetadata { get; } = new UdonSharpBehaviourMetadata();
-
         // Stubs for the UdonBehaviour functions that emulate Udon behavior
         public object GetProgramVariable(string name)
         {
@@ -60,6 +49,10 @@ namespace UdonSharp
         {
             return Instantiate(original);
         }
+
+#if UDON_BETA_SDK
+        public void RequestSerialization() { }
+#endif
 
         // Stubs for builtin UdonSharp methods to get type info
         private static long GetUdonTypeID(System.Type type)
@@ -106,13 +99,57 @@ namespace UdonSharp
         public virtual void OnPlayerJoined(VRC.SDKBase.VRCPlayerApi player) { }
         public virtual void OnPlayerLeft(VRC.SDKBase.VRCPlayerApi player) { }
         public virtual void OnSpawn() { }
-        public virtual void OnStationEntered() { }
-        public virtual void OnStationExited() { }
+        public virtual void OnStationEntered(VRC.SDKBase.VRCPlayerApi player) { }
+        public virtual void OnStationExited(VRC.SDKBase.VRCPlayerApi player) { }
         public virtual void OnVideoEnd() { }
+        public virtual void OnVideoError(VRC.SDK3.Components.Video.VideoError videoError) { }
+        public virtual void OnVideoLoop() { }
         public virtual void OnVideoPause() { }
         public virtual void OnVideoPlay() { }
+        public virtual void OnVideoReady() { }
         public virtual void OnVideoStart() { }
         public virtual void OnPreSerialization() { }
         public virtual void OnDeserialization() { }
+#if UDON_BETA_SDK || true
+        //public virtual bool OnOwnershipRequest(VRC.SDKBase.VRCPlayerApi requestingPlayer, VRC.SDKBase.VRCPlayerApi requestedOwner) => true;
+        public virtual void OnPlayerTriggerEnter(VRC.SDKBase.VRCPlayerApi player) { }
+        public virtual void OnPlayerTriggerExit(VRC.SDKBase.VRCPlayerApi player) { }
+        public virtual void OnPlayerTriggerStay(VRC.SDKBase.VRCPlayerApi player) { }
+        public virtual void OnPlayerCollisionEnter(VRC.SDKBase.VRCPlayerApi player) { }
+        public virtual void OnPlayerCollisionExit(VRC.SDKBase.VRCPlayerApi player) { }
+        public virtual void OnPlayerCollisionStay(VRC.SDKBase.VRCPlayerApi player) { }
+        public virtual void OnPlayerParticleCollision(VRC.SDKBase.VRCPlayerApi player) { }
+#endif
+
+        [Obsolete("The OnStationEntered() event is deprecated use the OnStationEntered(VRCPlayerApi player) event instead, this event will be removed in a future release.")]
+        public virtual void OnStationEntered() { }
+
+        [Obsolete("The OnStationExited() event is deprecated use the OnStationExited(VRCPlayerApi player) event instead, this event will be removed in a future release.")]
+        public virtual void OnStationExited() { }
+
+#if UNITY_EDITOR
+        // Used for tracking serialization data in editor
+        // Odin serialization is needed to keep track of the _backingUdonBehaviour reference for undo/redo operations
+        [SerializeField, HideInInspector]
+        SerializationData serializationData;
+
+        void ISerializationCallbackReceiver.OnBeforeSerialize()
+        {
+            UnitySerializationUtility.SerializeUnityObject(this, ref serializationData);
+        }
+
+        void ISerializationCallbackReceiver.OnAfterDeserialize()
+        {
+            UnitySerializationUtility.DeserializeUnityObject(this, ref serializationData);
+        }
+
+        [OdinSerialize]
+        private IUdonBehaviour _backingUdonBehaviour;
+
+#pragma warning disable CS0414 // Referenced via reflection
+        [SerializeField, HideInInspector]
+        private bool _isValidForAutoCopy = false;
+#pragma warning restore CS0414
+#endif
     }
 }

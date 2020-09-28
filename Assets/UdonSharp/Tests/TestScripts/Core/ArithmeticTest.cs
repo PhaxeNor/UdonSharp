@@ -22,10 +22,14 @@ namespace UdonSharp.Tests
             IntAssignment();
             LongAssignment();
             ByteIncrement();
+            ByteAssignment();
             LongIncrement();
             ShortIncrement();
             UShortIncrement();
             IntTruncate();
+            UintBitOps();
+            StringAddition();
+            DecimalOps();
         }
 
         void IntBinaryOps()
@@ -116,6 +120,26 @@ namespace UdonSharp.Tests
             tester.TestAssertion("Integer Prefix Decrement", --testVal == 5);
             tester.TestAssertion("Integer Postfix Decrement", testVal-- == 5);
             tester.TestAssertion("Integer Postfix Decrement 2", testVal == 4);
+
+            // Also test increment/decrements without consuming the value;
+            testVal++;
+            tester.TestAssertion("Integer Prefix Increment (out of line)", testVal == 5);
+            ++testVal;
+            tester.TestAssertion("Integer Prefix Increment (out of line)", testVal == 6);
+            --testVal;
+            tester.TestAssertion("Integer Prefix Decrement (out of line)", testVal == 5);
+            --testVal;
+            tester.TestAssertion("Integer Prefix Decrement (out of line)", testVal == 4);
+
+            tester.TestAssertion("Integer +=", (testVal += 3) == 7);
+
+            testVal += 4;
+            tester.TestAssertion("Integer += (out of line)", testVal == 11);
+
+            tester.TestAssertion("Integer -=", (testVal -= 2) == 9);
+
+            testVal -= 7;
+            tester.TestAssertion("Integer += (out of line)", testVal == 2);
         }
 
         void UIntIncrement()
@@ -128,6 +152,9 @@ namespace UdonSharp.Tests
             tester.TestAssertion("Unsigned Integer Prefix Decrement", --testVal == 5);
             tester.TestAssertion("Unsigned Integer Postfix Decrement", testVal-- == 5);
             tester.TestAssertion("Unsigned Integer Postfix Decrement 2", testVal == 4);
+
+            testVal = 0;
+            tester.TestAssertion("UInt overflow", (testVal - 1u) == uint.MaxValue);
         }
 
         void IntAssignment()
@@ -150,7 +177,7 @@ namespace UdonSharp.Tests
         void ByteAssignment()
         {
             sbyte testVal = 5;
-
+            
             tester.TestAssertion("sByte Add Assign", (testVal += 4) == 9);
             tester.TestAssertion("sByte Subtract Assign", (testVal -= 20) == -11);
             tester.TestAssertion("sByte Multiply Assign", (testVal *= 8) == -88);
@@ -240,6 +267,39 @@ namespace UdonSharp.Tests
 
             truncatedValue = (int)4.7;
             tester.TestAssertion("Double to Int Truncation", truncatedValue == 4);
+        }
+
+        void UintBitOps()
+        {
+            uint x = 1;
+            x <<= 1;
+            tester.TestAssertion("uint <<=", x == 2);
+            x = (x << 2);
+            tester.TestAssertion("uint <<", x == 8);
+
+            x ^= 1;
+            tester.TestAssertion("uint ^=", x == 9);
+            // https://github.com/Merlin-san/UdonSharp/issues/23
+            //x = (x ^ 3);
+            //tester.TestAssertion("uint ^", x == 10);
+        }
+
+        void DecimalOps()
+        {
+            decimal x = 4;
+
+            tester.TestAssertion("Decimal equality", x == 4);
+            tester.TestAssertion("Decimal addition", (x + 5) == 9);
+            tester.TestAssertion("Decimal mul", (3 * 0.5m) == 1.5m);
+        }
+
+        void StringAddition()
+        {
+            string s = "ab";
+            s = s + "cd";
+            s += "ef";
+            s += string.Format("{0:x2}", 0x42);
+            tester.TestAssertion("String addition", s == "abcdef42");
         }
     }
 }

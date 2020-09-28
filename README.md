@@ -35,20 +35,18 @@ This compiler is in an early state and I have no prior experience making compile
 - User defined methods currently cannot be recursive. They will technically compile, but will likely break because all invocations of a function currently share the same "stack" variables. Support for this is planned as an optional attribute since implementing recursion with Udon's primitives makes it very performance heavy.
 - Field initilizers are evaluated at compile time, if you have any init logic that depends on other objects in the scene you should use Start for this.
 - Use the `UdonSynced` attribute on fields that you want to sync.  
+- Numeric casts are checked for overflow due to UdonVM limitations
 
 ## Udon bugs that affect U#
-- Heap variables do not get initialized immediately which can cause unexpected behavior. Mainly when you use VRCInstantiate to create an object, the UdonBehaviour components on the instantiated object will not be setup until the next frame. So you cannot set values on the UdonBehaviour script immediately after initialization and attempts to get variables will return null. Due to how `GetComponent<T>` on user defined types works, it will also fail and return null until the behaviour has a chance to initialize its heap. This also happens if you have a UdonBehaviour that has never been enabled. https://vrchat.canny.io/vrchat-udon-closed-alpha-bugs/p/heap-values-are-not-initialized-in-some-cases-so-getprogramvariable-returns-null
-- In a similar manner custom events will not be fired immediately after instantiation. https://vrchat.canny.io/vrchat-udon-closed-alpha-bugs/p/sendcustomevent-fails-on-gameobjects-that-where-instantiated-in-the-same-functio
-- Setters on properties for struct types do not currently function https://vrchat.canny.io/vrchat-udon-closed-alpha-bugs/p/raysetorigin-and-raysetdirection-not-working
-- Instantiated objects will sometimes lose their UdonBehaviour or cannot be interacted with/triggered https://vrchat.canny.io/vrchat-udon-closed-alpha-bugs/p/interactive-objects-break-after-being-clonedinstanciated-on-live-worlds
-- Quaternion.ToAngleAxis() does not function, this may extend to other functions with multiple `out` or `ref` parameters https://vrchat.canny.io/vrchat-udon-closed-alpha-bugs/p/quaterniontoangleaxis-broken
+- Mutating methods on structs do not modify the struct (this can be seen on things like calling Normalize() on a Vector3) https://vrchat.canny.io/vrchat-udon-closed-alpha-bugs/p/raysetorigin-and-raysetdirection-not-working
+- Instantiated objects will lose their UdonBehaviours when instantiated from a prefab and cannot be interacted with/triggered https://vrchat.canny.io/vrchat-udon-closed-alpha-bugs/p/interactive-objects-break-after-being-clonedinstanciated-on-live-worlds
+- Calling Destroy() on an object in game and then using a null check to check if it's valid will throw exceptions in game https://vrchat.canny.io/vrchat-udon-closed-alpha-bugs/p/null-check-on-gameobject-will-throw-exception-if-the-gameobj-is-destroyed
 
 ## Setup
 
 ### Requirements
 - Unity 2018.4.20f1 or greater
-- VRCSDK3
-- UdonSDK
+- [VRCSDK3 + UdonSDK](https://vrchat.com/home/download)
 - The latest [release](https://github.com/Merlin-san/UdonSharp/releases/latest) of UdonSharp
 
 ### Installation
@@ -63,6 +61,15 @@ This compiler is in an early state and I have no prior experience making compile
 4. Now click the New Program button, this will create a new UdonSharp program asset for you
 5. Click the Create Script button and choose a save destination and name for the script.
 6. This will create a template script that's ready for you to start working on, open the script in your editor of choice and start programming
+
+#### Asset explorer asset creation
+
+Instead of creating assets from an UdonBehaviour you can also do the following:
+1. Right-click in your project asset explorer
+2. Navigate to Create > U# script
+3. Click U# script, this will open a create file dialog
+4. Choose a name for your script and click Save
+5. This will create a .cs script file and an UdonSharp program asset that's set up for the script in the same directory
 
 ### Example scripts
 
@@ -83,10 +90,16 @@ public class RotatingCubeBehaviour : UdonSharpBehaviour
 }
 ```
 
+#### Other examples
+
+For more example scripts take a look at the wiki page for [examples](https://github.com/Merlin-san/UdonSharp/wiki/examples), the Examples folder included with U#, or the [community resources](https://github.com/Merlin-san/UdonSharp/wiki/community-resources) page on the wiki.
+
 ## Credits
 [**Toocanzs**](https://github.com/Toocanzs) - Implementing field initializers and helping with miscellaneous things
 
 [**PhaxeNor**](https://github.com/PhaxeNor) - Help with wiki and documentation
+
+[**bd_**](https://github.com/bdunderscore) - Significant optimizations to compiled code
 
 [**UdonPie Compiler**](https://github.com/zz-roba/UdonPieCompiler) - For demonstrating how straightforward it can be to write a compiler for Udon
 

@@ -1,7 +1,7 @@
-﻿using System.Collections;
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using UdonSharp.Compiler;
 using UnityEditor;
 using UnityEngine;
 
@@ -57,14 +57,19 @@ namespace UdonSharp
 
             AssemblyReloadEvents.beforeAssemblyReload += CleanupWatchers;
 
-            string[] directories = Directory.GetDirectories("Assets/", "*", SearchOption.AllDirectories).Append("Assets/").ToArray();
+            string[] blacklistedDirectories = UdonSharpSettings.GetScannerBlacklist();
+
+            string[] directories = Directory.GetDirectories("Assets/", "*", SearchOption.AllDirectories).Append("Assets/")
+                .Select(e => e.Replace('\\', '/'))
+                .Where(e => !blacklistedDirectories.Any(name => name.TrimEnd('/') == e.TrimEnd('/') || e.StartsWith(name)))
+                .ToArray();
 
             List<string> sourceDirectories = new List<string>();
 
             foreach (string directory in directories)
             {
                 if (Directory.GetFiles(directory, "*.cs").Length > 0)
-                    sourceDirectories.Add(directory.Replace('\\', '/'));
+                    sourceDirectories.Add(directory);
             }
 
             fileSystemWatchers = new FileSystemWatcher[sourceDirectories.Count];
@@ -120,14 +125,7 @@ namespace UdonSharp
             if (modifiedScripts.Count == 0)
                 return;
 
-            string[] udonSharpDataAssets = AssetDatabase.FindAssets($"t:{typeof(UdonSharpProgramAsset).Name}");
-
-            List<UdonSharpProgramAsset> udonSharpPrograms = new List<UdonSharpProgramAsset>();
-
-            foreach (string dataGuid in udonSharpDataAssets)
-            {
-                udonSharpPrograms.Add(AssetDatabase.LoadAssetAtPath<UdonSharpProgramAsset>(AssetDatabase.GUIDToAssetPath(dataGuid)));
-            }
+            UdonSharpProgramAsset[] udonSharpPrograms = UdonSharpProgramAsset.GetAllUdonSharpPrograms();
 
             HashSet<UdonSharpProgramAsset> assetsToUpdate = new HashSet<UdonSharpProgramAsset>();
 
@@ -159,39 +157,11 @@ namespace UdonSharp
             {
                 modifiedScripts.Clear();
             }
-
-            modifiedScripts.Clear();
         }
 
         static void OnEditorUpdate()
         {
             SetupWatchers();
-
-            // Prevent people from entering play mode when there are compile errors, like normal Unity C#
-            if (EditorApplication.isPlayingOrWillChangePlaymode && !EditorApplication.isPlaying)
-            {
-                string[] udonSharpDataAssets = AssetDatabase.FindAssets($"t:{typeof(UdonSharpProgramAsset).Name}");
-
-                bool foundCompileErrors = false;
-
-                foreach (string dataGuid in udonSharpDataAssets)
-                {
-                    UdonSharpProgramAsset programAsset = AssetDatabase.LoadAssetAtPath<UdonSharpProgramAsset>(AssetDatabase.GUIDToAssetPath(dataGuid));
-
-                    if (programAsset.sourceCsScript != null && programAsset.compileErrors.Count > 0)
-                    {
-                        foundCompileErrors = true;
-                        break;
-                    }
-                }
-
-                if (foundCompileErrors)
-                {
-                    EditorApplication.isPlaying = false;
-
-                    typeof(SceneView).GetMethod("ShowNotification", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static).Invoke(null, new object[] { "All U# compile errors have to be fixed before you can enter playmode!" });
-                }
-            }
             
             lock (modifiedFileLock)
             {
