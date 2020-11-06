@@ -22,18 +22,22 @@ namespace UdonSharpEditor
     {
         static UdonSharpEditorManager()
         {
-            EditorSceneManager.sceneOpened += EditorSceneManager_sceneOpened;
+            EditorSceneManager.sceneOpened += OnSceneOpened;
             EditorApplication.update += OnEditorUpdate;
             EditorApplication.playModeStateChanged += OnChangePlayMode;
             AssemblyReloadEvents.afterAssemblyReload += RunPostAssemblyBuildRefresh;
-            AssemblyReloadEvents.afterAssemblyReload += InjectUnityEventInterceptors;
         }
 
-        private static void EditorSceneManager_sceneOpened(Scene scene, OpenSceneMode mode)
-        {
-            List<UdonBehaviour> udonBehaviours = GetAllUdonBehaviours();
+        static bool _skipSceneOpen = false;
 
-            RunAllUpdates(udonBehaviours);
+        private static void OnSceneOpened(Scene scene, OpenSceneMode mode)
+        {
+            if (!_skipSceneOpen)
+            {
+                List<UdonBehaviour> udonBehaviours = GetAllUdonBehaviours();
+
+                RunAllUpdates(udonBehaviours);
+            }
         }
 
         internal static void RunPostBuildSceneFixup()
@@ -49,6 +53,7 @@ namespace UdonSharpEditor
         static void RunPostAssemblyBuildRefresh()
         {
             UdonSharpProgramAsset.CompileAllCsPrograms();
+            InjectUnityEventInterceptors();
         }
 
         static void InjectUnityEventInterceptors()
@@ -68,7 +73,7 @@ namespace UdonSharpEditor
             Harmony harmony = new Harmony(harmonyID);
             harmony.UnpatchAll(harmonyID);
 
-            MethodInfo injectedEvent = typeof(InjectedMethods).GetMethod("EventInterceptor", BindingFlags.Static | BindingFlags.Public);
+            MethodInfo injectedEvent = typeof(InjectedMethods).GetMethod(nameof(InjectedMethods.EventInterceptor), BindingFlags.Static | BindingFlags.Public);
             HarmonyMethod injectedMethod = new HarmonyMethod(injectedEvent);
 
             void InjectEvent(System.Type behaviourType, string eventName)
@@ -152,19 +157,33 @@ namespace UdonSharpEditor
                 InjectEvent(udonSharpBehaviourType, "OnDestroy");
             }
 
+            // Add method for checking if events need to be skipped
+            InjectedMethods.shouldSkipEventsMethod = (Func<bool>)Delegate.CreateDelegate(typeof(Func<bool>), typeof(UdonSharpBehaviour).GetMethod("ShouldSkipEvents", BindingFlags.Static | BindingFlags.NonPublic));
+
             // Patch GUI object field drawer
             MethodInfo doObjectFieldMethod = typeof(EditorGUI).GetMethods(BindingFlags.Static | BindingFlags.NonPublic).FirstOrDefault(e => e.Name == "DoObjectField" && e.GetParameters().Length == 9);
 
-            HarmonyMethod objectFieldProxy = new HarmonyMethod(typeof(InjectedMethods).GetMethod("DoObjectFieldProxy"));
+            HarmonyMethod objectFieldProxy = new HarmonyMethod(typeof(InjectedMethods).GetMethod(nameof(InjectedMethods.DoObjectFieldProxy)));
             harmony.Patch(doObjectFieldMethod, objectFieldProxy);
 
             System.Type validatorDelegateType = typeof(EditorGUI).GetNestedType("ObjectFieldValidator", BindingFlags.Static | BindingFlags.NonPublic);
-            InjectedMethods.validationDelegate = Delegate.CreateDelegate(validatorDelegateType, typeof(InjectedMethods).GetMethod("ValidateObjectReference"));
+            InjectedMethods.validationDelegate = Delegate.CreateDelegate(validatorDelegateType, typeof(InjectedMethods).GetMethod(nameof(InjectedMethods.ValidateObjectReference)));
 
             InjectedMethods.objectValidatorMethod = typeof(EditorGUI).GetMethod("ValidateObjectReferenceValue", BindingFlags.NonPublic | BindingFlags.Static);
 
             MethodInfo crossSceneRefCheckMethod = typeof(EditorGUI).GetMethod("CheckForCrossSceneReferencing", BindingFlags.NonPublic | BindingFlags.Static);
             InjectedMethods.crossSceneRefCheckMethod = (Func<UnityEngine.Object, UnityEngine.Object, bool>)Delegate.CreateDelegate(typeof(Func<UnityEngine.Object, UnityEngine.Object, bool>), crossSceneRefCheckMethod);
+
+            // Patch post BuildAssetBundles fixup function
+            MethodInfo buildAssetbundlesMethod = typeof(BuildPipeline).GetMethods(BindingFlags.NonPublic | BindingFlags.Static).First(e => e.Name == "BuildAssetBundles" && e.GetParameters().Length == 5);
+
+            MethodInfo postBuildMethod = typeof(InjectedMethods).GetMethod(nameof(InjectedMethods.PostBuildAssetBundles), BindingFlags.Public | BindingFlags.Static);
+            HarmonyMethod postBuildHarmonyMethod = new HarmonyMethod(postBuildMethod);
+
+            MethodInfo preBuildMethod = typeof(InjectedMethods).GetMethod(nameof(InjectedMethods.PreBuildAssetBundles), BindingFlags.Public | BindingFlags.Static);
+            HarmonyMethod preBuildHarmonyMethod = new HarmonyMethod(preBuildMethod);
+
+            harmony.Patch(buildAssetbundlesMethod, preBuildHarmonyMethod, postBuildHarmonyMethod);
         }
 
         static class InjectedMethods
@@ -172,12 +191,13 @@ namespace UdonSharpEditor
             public static Delegate validationDelegate;
             public static MethodInfo objectValidatorMethod;
             public static Func<UnityEngine.Object, UnityEngine.Object, bool> crossSceneRefCheckMethod;
+            public static Func<bool> shouldSkipEventsMethod;
 
             public static bool EventInterceptor(UdonSharpBehaviour __instance)
             {
-                if (UdonSharpEditorUtility.IsProxyBehaviour(__instance))
+                if (UdonSharpEditorUtility.IsProxyBehaviour(__instance) || shouldSkipEventsMethod())
                     return false;
-                
+
                 return true;
             }
 
@@ -284,6 +304,18 @@ namespace UdonSharpEditor
 
                 return true;
             }
+
+            public static void PreBuildAssetBundles()
+            {
+                DestroyAllProxies();
+                _skipSceneOpen = true;
+            }
+
+            public static void PostBuildAssetBundles()
+            {
+                CreateProxyBehaviours(GetAllUdonBehaviours());
+                _skipSceneOpen = false;
+            }
         }
 
         static void OnChangePlayMode(PlayModeStateChange state)
@@ -332,6 +364,8 @@ namespace UdonSharpEditor
 
         static void RunAllUpdates(List<UdonBehaviour> allBehaviours = null)
         {
+            UdonSharpEditorUtility.SetIgnoreEvents(false);
+
             if (allBehaviours == null)
                 allBehaviours = GetAllUdonBehaviours();
 
@@ -372,13 +406,17 @@ namespace UdonSharpEditor
             for (int i = 0; i < sceneCount; ++i)
             {
                 Scene scene = EditorSceneManager.GetSceneAt(i);
-                int rootCount = scene.rootCount;
 
-                scene.GetRootGameObjects(rootObjects);
-
-                for (int j = 0; j < rootCount; ++j)
+                if (scene.isLoaded)
                 {
-                    behaviourList.AddRange(rootObjects[j].GetComponentsInChildren<UdonBehaviour>(true));
+                    int rootCount = scene.rootCount;
+
+                    scene.GetRootGameObjects(rootObjects);
+
+                    for (int j = 0; j < rootCount; ++j)
+                    {
+                        behaviourList.AddRange(rootObjects[j].GetComponentsInChildren<UdonBehaviour>(true));
+                    }
                 }
             }
 
@@ -807,8 +845,24 @@ namespace UdonSharpEditor
         {
             foreach (UdonBehaviour udonBehaviour in allBehaviours)
             {
-                if (udonBehaviour.programSource != null && udonBehaviour.programSource is UdonSharpProgramAsset)
+                if (UdonSharpEditorUtility.IsUdonSharpBehaviour(udonBehaviour))
                     UdonSharpEditorUtility.GetProxyBehaviour(udonBehaviour, ProxySerializationPolicy.NoSerialization);
+            }
+        }
+
+        static void DestroyAllProxies()
+        {
+            var allBehaviours = GetAllUdonBehaviours();
+
+            foreach (UdonBehaviour behaviour in allBehaviours)
+            {
+                if (UdonSharpEditorUtility.IsUdonSharpBehaviour(behaviour))
+                {
+                    UdonSharpBehaviour proxy = UdonSharpEditorUtility.FindProxyBehaviour(behaviour, ProxySerializationPolicy.NoSerialization);
+
+                    if (proxy)
+                        UnityEngine.Object.DestroyImmediate(proxy);
+                }
             }
         }
     }

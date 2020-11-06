@@ -343,7 +343,7 @@ namespace UdonSharpEditor
 
             if (udonBehaviour)
             {
-                editorState.showExtraOptions = programAsset.showUtilityDropdown = EditorGUILayout.Foldout(editorState.showExtraOptions, "Utilities");
+                editorState.showExtraOptions = programAsset.showUtilityDropdown = EditorGUILayout.Foldout(editorState.showExtraOptions, "Utilities", true);
                 if (editorState.showExtraOptions)
                 {
                     if (GUILayout.Button("Compile All UdonSharp Programs"))
@@ -741,7 +741,7 @@ namespace UdonSharpEditor
                             {
                                 Array oldArray = (Array)value;
 
-                                Array newArray = Activator.CreateInstance(arrayDataType, new object[] { oldArray.Length + draggedReferences.Count }) as Array;
+                                Array newArray = Activator.CreateInstance(UdonSharpUtils.RemapBaseType(arrayDataType), new object[] { oldArray.Length + draggedReferences.Count }) as Array;
                                 Array.Copy(oldArray, newArray, oldArray.Length);
                                 Array.Copy(draggedReferences.ToArray(), 0, newArray, oldArray.Length, draggedReferences.Count);
 
@@ -763,7 +763,7 @@ namespace UdonSharpEditor
                     if (value == null)
                     {
                         GUI.changed = true;
-                        return System.Activator.CreateInstance(arrayDataType, new object[] { 0 });
+                        return System.Activator.CreateInstance(UdonSharpUtils.RemapBaseType(arrayDataType), new object[] { 0 });
                     }
 
                     EditorGUI.indentLevel++;
@@ -783,7 +783,7 @@ namespace UdonSharpEditor
                         // We need to resize the array
                         if (EditorGUI.EndChangeCheck())
                         {
-                            Array newArray = Activator.CreateInstance(arrayDataType, new object[] { newLength }) as Array;
+                            Array newArray = Activator.CreateInstance(UdonSharpUtils.RemapBaseType(arrayDataType), new object[] { newLength }) as Array;
 
                             for (int i = 0; i < newLength && i < valueArray.Length; ++i)
                             {
@@ -894,7 +894,7 @@ namespace UdonSharpEditor
             }
             else if (declaredType == typeof(Color))
             {
-                ColorUsageAttribute colorUsage = fieldDefinition == null ? null : fieldDefinition.GetAttribute<ColorUsageAttribute>();
+                ColorUsageAttribute colorUsage = fieldDefinition?.GetAttribute<ColorUsageAttribute>();
 
                 if (colorUsage != null)
                 {
@@ -907,7 +907,16 @@ namespace UdonSharpEditor
             }
             else if (declaredType == typeof(Color32))
             {
-                return (Color32)EditorGUILayout.ColorField(fieldLabel, (Color32?)value ?? default);
+                ColorUsageAttribute colorUsage = fieldDefinition?.GetAttribute<ColorUsageAttribute>();
+
+                if (colorUsage != null)
+                {
+                    return (Color32)EditorGUILayout.ColorField(fieldLabel, (Color32?)value ?? default, false, colorUsage.showAlpha, false);
+                }
+                else
+                {
+                    return (Color32)EditorGUILayout.ColorField(fieldLabel, (Color32?)value ?? default);
+                }
             }
             else if (declaredType == typeof(Quaternion))
             {
@@ -1368,6 +1377,13 @@ namespace UdonSharpEditor
             if (behaviour.GetComponent<Collider>() != null)
             {
                 newCollisionTransfer = EditorGUILayout.Toggle(ownershipTransferOnCollisionContent, behaviour.AllowCollisionOwnershipTransfer);
+            }
+            else if(newCollisionTransfer)
+            {
+                newCollisionTransfer = false;
+
+                if (PrefabUtility.IsPartOfPrefabInstance(behaviour))
+                    PrefabUtility.RecordPrefabInstancePropertyModifications(behaviour);
             }
             EditorGUI.EndDisabledGroup();
 
